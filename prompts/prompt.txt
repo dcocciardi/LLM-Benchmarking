@@ -1,0 +1,13 @@
+Explain what is epistasys in genetics as if you were a bachelor student.
+Describe the difference between a CPU and a GPU and which one is more important for parallel computing.  
+Summarize how transformers revolutionized natural language processing.
+Write a short poem about the feeling of curiosity.
+Explain the main differences between supervised and unsupervised learning.
+Describe how photosynthesis works as if you were teaching a child.
+Summarize the concept of blockchain in under 100 words.
+Write a short dialogue between a human and an AI assistant discussing ethics.
+Explain why the sky appears blue using scientific reasoning.
+Compare classical physics and quantum mechanics in one paragraph.
+Write a short story about a robot discovering music for the first time.
+Describe how the Internet works using a simple real-world analogy.
+Predict how artificial intelligence could change education in the next 20 years.
