@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+
+# Data & results
+data/*.csv
+data/*.png
+
+# Models
+models/
+
+# OS / editor
+.vscode/
+.DS_Store
