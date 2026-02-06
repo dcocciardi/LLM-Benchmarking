@@ -17,6 +17,11 @@ from typing import List
 
 from config import SUPPORTED_QUANTS
 
+import csv
+from benchmark_cli import run_llama_benchmark
+from config import RESULTS_CSV, PROMPT_FILE, LLAMA_CLI
+
+
 
 # ---------------------------
 # Menu utilities
@@ -84,13 +89,56 @@ def prepare_model_menu():
 
 def run_benchmark_menu():
     print("\n--- Run benchmark ---")
+
+    model_name = input("Model name (label for results): ").strip()
     model_path = input("Path to GGUF model: ").strip()
 
-    print("\n[INFO]")
-    print(f"Model path     : {model_path}")
-    print("Action         : run_llama_benchmark() [NOT IMPLEMENTED YET]\n")
+    try:
+        ngl_layers = int(input("Number of GPU layers (-ngl, default 0): ").strip() or 0)
+    except ValueError:
+        print("Invalid number for GPU layers.")
+        return
 
-    # TODO: call benchmark_cli.run_llama_benchmark()
+    print("\n[INFO] Running benchmark...\n")
+
+    try:
+        results = run_llama_benchmark(
+            model_name=model_name,
+            model_path=model_path,
+            prompt_file=str(PROMPT_FILE),
+            llama_cli_path=str(LLAMA_CLI),
+            ngl_layers=ngl_layers,
+        )
+    except Exception as e:
+        print(f"[ERROR] Benchmark failed: {e}")
+        return
+
+    # ---- Save results to CSV ----
+    file_exists = RESULTS_CSV.exists()
+
+    with open(RESULTS_CSV, "a", newline="", encoding="utf-8") as csvfile:
+        writer = csv.DictWriter(
+            csvfile,
+            fieldnames=["Model", "PromptID", "Load_s", "Eval_s", "TPS"]
+        )
+
+        if not file_exists:
+            writer.writeheader()
+
+        for row in results:
+            writer.writerow(row)
+
+    # ---- Print summary ----
+    avg_tps = sum(r["TPS"] for r in results) / len(results)
+    avg_load = sum(r["Load_s"] for r in results) / len(results)
+
+    print("\n--- Benchmark completed ---")
+    print(f"Model          : {model_name}")
+    print(f"Prompts tested : {len(results)}")
+    print(f"Avg load time  : {avg_load:.2f} s")
+    print(f"Avg TPS        : {avg_tps:.2f} tok/s")
+    print(f"Results saved  : {RESULTS_CSV}\n")
+
 
 
 def compute_ppl_menu():
