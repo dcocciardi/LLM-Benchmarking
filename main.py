@@ -21,6 +21,9 @@ import csv
 from benchmark_cli import run_llama_benchmark
 from config import RESULTS_CSV, PROMPT_FILE, LLAMA_CLI
 
+from plots import generate_basic_plots
+from config import RESULTS_CSV, DATA_DIR
+
 
 
 # ---------------------------
@@ -154,10 +157,23 @@ def compute_ppl_menu():
 
 def generate_plots_menu():
     print("\n--- Generate plots ---")
-    print("\n[INFO]")
-    print("Action         : generate_plots() [NOT IMPLEMENTED YET]\n")
 
-    # TODO: call plots.generate_all()
+    if not RESULTS_CSV.exists():
+        print(f"[ERROR] Results file not found: {RESULTS_CSV}")
+        return
+
+    output_dir = DATA_DIR / "plots"
+
+    try:
+        generate_basic_plots(
+            csv_path=RESULTS_CSV,
+            output_dir=output_dir,
+        )
+    except Exception as e:
+        print(f"[ERROR] Plot generation failed: {e}")
+        return
+
+    print("[INFO] Plot generation completed.\n")
 
 
 def full_pipeline_menu():
