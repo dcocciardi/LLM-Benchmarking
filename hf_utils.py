@@ -42,11 +42,16 @@ def download_model_from_hf(
         return Path(local_path)
 
     except HfHubHTTPError as e:
-        print("\n[ERROR] Unable to download model from Hugging Face.")
-        print("This model may be gated or require authentication.\n")
-        print("If so, please login first using:")
+        print("\n[Hugging Face Hub Error]")
+        print("Unable to download the requested model repository.\n")
+        print("Possible reasons:")
+        print(" - The repository is gated or private")
+        print(" - Authentication is required")
+        print(" - The repository or revision does not exist\n")
+        print("If the repository is gated, please authenticate first using:")
         print("  huggingface-cli login\n")
         raise e
+
 
 
 # ---------------------------
