@@ -24,6 +24,9 @@ from config import RESULTS_CSV, PROMPT_FILE, LLAMA_CLI
 from plots import generate_basic_plots
 from config import RESULTS_CSV, DATA_DIR
 
+from ppl import compute_ppl
+from config import LLAMA_PPL, DATA_DIR
+
 
 
 # ---------------------------
@@ -146,13 +149,35 @@ def run_benchmark_menu():
 
 def compute_ppl_menu():
     print("\n--- Compute perplexity (PPL) ---")
+
     model_path = input("Path to GGUF model: ").strip()
+    model_path = Path(model_path)
 
-    print("\n[INFO]")
-    print(f"Model path     : {model_path}")
-    print("Action         : compute_ppl() [NOT IMPLEMENTED YET]\n")
+    corpus_path = DATA_DIR / "corpora" / "wikitext2" / "wiki.test.raw"
 
-    # TODO: call ppl.compute_ppl()
+    try:
+        ngl_layers = int(input("Number of GPU layers (-ngl, default 0): ").strip() or 0)
+    except ValueError:
+        print("Invalid number for GPU layers.")
+        return
+
+    print("\n[INFO] Computing perplexity...\n")
+
+    try:
+        ppl_value = compute_ppl(
+            model_path=model_path,
+            corpus_path=corpus_path,
+            llama_perplexity_bin=LLAMA_PPL,
+            ngl_layers=ngl_layers,
+        )
+    except Exception as e:
+        print(f"[ERROR] PPL computation failed: {e}")
+        return
+
+    print("\n--- Perplexity result ---")
+    print(f"Model : {model_path.name}")
+    print(f"PPL   : {ppl_value:.4f}\n")
+
 
 
 def generate_plots_menu():

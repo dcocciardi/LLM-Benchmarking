@@ -2,8 +2,9 @@
 """
 Perplexity (PPL) evaluation utilities using llama-perplexity.
 
-Uses a standard language modelling corpus (WikiText-2 raw).
-If the corpus is not found locally, it is downloaded automatically.
+- Uses WikiText-2 raw test set (standard LM benchmark)
+- Automatically downloads the corpus if not present
+- Relies on centralised paths defined in config.py
 """
 
 from pathlib import Path
@@ -11,38 +12,50 @@ import subprocess
 import re
 import urllib.request
 
+from config import CORPORA_DIR
+
+
+# ---------------------------
+# WikiText-2 configuration
+# ---------------------------
 
 WIKITEXT2_URL = (
     "https://huggingface.co/datasets/wikitext/resolve/main/"
     "wikitext-2-raw-v1/wiki.test.raw"
 )
 
+WIKITEXT2_PATH = CORPORA_DIR / "wikitext2" / "wiki.test.raw"
+
 
 # ---------------------------
 # Corpus utilities
 # ---------------------------
 
-def ensure_wikitext2_corpus(corpus_path: Path) -> None:
+def ensure_wikitext2_corpus() -> Path:
     """
     Ensure that the WikiText-2 raw test corpus exists locally.
     If not, download it from Hugging Face.
+
+    Returns:
+        Path to the corpus file.
     """
 
-    if corpus_path.exists():
-        return
+    if WIKITEXT2_PATH.exists():
+        return WIKITEXT2_PATH
 
     print("[INFO] WikiText-2 corpus not found. Downloading...")
 
-    corpus_path.parent.mkdir(parents=True, exist_ok=True)
+    WIKITEXT2_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        urllib.request.urlretrieve(WIKITEXT2_URL, corpus_path)
+        urllib.request.urlretrieve(WIKITEXT2_URL, WIKITEXT2_PATH)
     except Exception as e:
         raise RuntimeError(
             f"Failed to download WikiText-2 corpus: {e}"
         )
 
     print("[INFO] WikiText-2 corpus downloaded successfully.")
+    return WIKITEXT2_PATH
 
 
 # ---------------------------
@@ -51,7 +64,6 @@ def ensure_wikitext2_corpus(corpus_path: Path) -> None:
 
 def compute_ppl(
     model_path: Path,
-    corpus_path: Path,
     llama_perplexity_bin: Path,
     *,
     context_size: int = 2048,
@@ -59,7 +71,17 @@ def compute_ppl(
     ngl_layers: int = 0,
 ) -> float:
     """
-    Compute perplexity using llama-perplexity.
+    Compute perplexity for a GGUF model using llama-perplexity.
+
+    Args:
+        model_path: Path to the GGUF model.
+        llama_perplexity_bin: Path to llama-perplexity binary.
+        context_size: Context window size.
+        batch_size: Batch size.
+        ngl_layers: Number of GPU layers.
+
+    Returns:
+        Perplexity value (float).
     """
 
     if not model_path.exists():
@@ -70,8 +92,7 @@ def compute_ppl(
             f"llama-perplexity binary not found: {llama_perplexity_bin}"
         )
 
-    # Ensure corpus is available
-    ensure_wikitext2_corpus(corpus_path)
+    corpus_path = ensure_wikitext2_corpus()
 
     cmd = [
         str(llama_perplexity_bin),
@@ -94,7 +115,7 @@ def compute_ppl(
 
     output = result.stdout + result.stderr
 
-    # Typical output:
+    # Expected output line:
     # "perplexity = 12.3456"
     match = re.search(r"perplexity\s*=\s*([\d\.]+)", output)
     if not match:
