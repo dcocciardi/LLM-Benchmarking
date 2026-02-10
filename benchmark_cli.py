@@ -1,68 +1,66 @@
-# benchmark_cli.py
 """
 Benchmark utilities for llama-cli.
 
-This module provides a reusable function to benchmark a GGUF model
-using llama-cli and extract runtime metrics such as:
-- load time
-- eval time
-- tokens/sec (TPS)
-
-Derived and refactored from test_cli.py.
+Runs inference benchmarks and extracts runtime metrics
+from llama.cpp logs.
 """
 
 import subprocess
 import re
-from typing import List, Dict
+from typing import Dict, List
 
 
 # ---------------------------
 # Parsing utilities
 # ---------------------------
 
-def parse_llama_output(stderr_output: str) -> Dict[str, float]:
+def parse_llama_output(output: str) -> Dict[str, float]:
     """
-    Parse llama-cli stderr output and extract benchmark metrics.
-    Returns values in seconds and tokens/sec.
+    Parse llama-cli output and extract runtime metrics.
+
+    Returns:
+        Dictionary with timing and memory estimates.
     """
 
     metrics = {
-        "load_s": 0.0,
-        "eval_s": 0.0,
-        "tokens": 0,
-        "tps": 0.0,
+        "Load_s": 0.0,
+        "Eval_s": 0.0,
+        "TPS": 0.0,
+        "ModelRAM_MB": 0.0,
+        "KVCache_MB": 0.0,
+        "RuntimeRAM_MB": 0.0,
     }
 
     # Load time
-    load_match = re.search(r"load time\s*=\s*([\d\.]+)\s*ms", stderr_output)
-    if load_match:
-        metrics["load_s"] = float(load_match.group(1)) / 1000.0
+    m = re.search(r"load time\s*=\s*([\d\.]+)\s*ms", output)
+    if m:
+        metrics["Load_s"] = float(m.group(1)) / 1000.0
 
-    # Eval time (generation only, excluding prompt eval)
-    eval_line = None
-    for line in stderr_output.splitlines():
+    # Eval time + TPS
+    for line in output.splitlines():
         if "eval time" in line and "prompt eval" not in line:
-            eval_line = line
+            m_eval = re.search(r"eval time\s*=\s*([\d\.]+)\s*ms", line)
+            if m_eval:
+                metrics["Eval_s"] = float(m_eval.group(1)) / 1000.0
+
+            m_tps = re.search(r"([\d\.]+)\s*(?:tok/s|tokens per second)", line)
+            if m_tps:
+                metrics["TPS"] = float(m_tps.group(1))
             break
 
-    if eval_line:
-        eval_match = re.search(r"eval time\s*=\s*([\d\.]+)\s*ms", eval_line)
-        if eval_match:
-            metrics["eval_s"] = float(eval_match.group(1)) / 1000.0
+    # Model size
+    m_model = re.search(r"model size\s*=\s*([\d\.]+)\s*MB", output)
+    if m_model:
+        metrics["ModelRAM_MB"] = float(m_model.group(1))
 
-        tps_match = re.search(
-            r"\(\s*[\d\.]+\s*ms per token,\s*([\d\.]+)\s*(?:tok/s|tokens per second)\)",
-            eval_line
-        )
-        if tps_match:
-            metrics["tps"] = float(tps_match.group(1))
+    # KV cache
+    m_kv = re.search(r"KV cache\s*=\s*([\d\.]+)\s*MB", output)
+    if m_kv:
+        metrics["KVCache_MB"] = float(m_kv.group(1))
 
-        tokens_match = re.search(
-            r"eval time\s*=\s*[\d\.]+\s*ms\s*/\s*(\d+)\s*runs",
-            eval_line
-        )
-        if tokens_match:
-            metrics["tokens"] = int(tokens_match.group(1))
+    metrics["RuntimeRAM_MB"] = (
+        metrics["ModelRAM_MB"] + metrics["KVCache_MB"]
+    )
 
     return metrics
 
@@ -78,62 +76,58 @@ def run_llama_benchmark(
     llama_cli_path: str,
     *,
     context_size: int = 2048,
-    max_tokens: int = 100,
+    max_tokens: int = 128,
     ngl_layers: int = 0,
     temperature: float = 0.7,
 ) -> List[Dict]:
     """
-    Run llama-cli benchmark on all prompts in a file.
-
-    Returns a list of dictionaries, one per prompt.
+    Run benchmark on all prompts and return aggregated metrics.
     """
 
-    results = []
-
     with open(prompt_file, "r", encoding="utf-8") as f:
-        prompts = [line.strip() for line in f.readlines() if line.strip()]
+        prompts = [p.strip() for p in f if p.strip()]
 
     if not prompts:
-        raise ValueError("No prompts found in prompt file.")
+        raise ValueError("Prompt file is empty.")
 
-    for prompt_id, prompt_text in enumerate(prompts, start=1):
-        command = [
+    all_metrics = []
+
+    for prompt in prompts:
+        cmd = [
             llama_cli_path,
             "-m", model_path,
-            "-p", prompt_text,
+            "-p", prompt,
             "-n", str(max_tokens),
             "-c", str(context_size),
             "--temp", str(temperature),
             "--ignore-eos",
             "--no-warmup",
-            "-no-cnv",
         ]
 
         if ngl_layers > 0:
-            command.extend(["-ngl", str(ngl_layers)])
+            cmd.extend(["-ngl", str(ngl_layers)])
 
-        process = subprocess.run(
-            command,
+        proc = subprocess.run(
+            cmd,
             capture_output=True,
             text=True,
             encoding="utf-8",
             errors="ignore",
+            check=True,
         )
 
-        stderr = process.stderr
-        metrics = parse_llama_output(stderr)
+        output = proc.stdout + proc.stderr
+        metrics = parse_llama_output(output)
+        all_metrics.append(metrics)
 
-        # Debug safeguard
-        if metrics["tps"] == 0.0 and metrics["tokens"] == 0:
-            print(f"[WARN] llama-cli produced zero metrics for prompt {prompt_id}")
-            print(stderr)
+    # Aggregate across prompts
+    avg = lambda k: sum(m[k] for m in all_metrics) / len(all_metrics)
 
-        results.append({
-            "Model": model_name,
-            "PromptID": prompt_id,
-            "Load_s": metrics["load_s"],
-            "Eval_s": metrics["eval_s"],
-            "TPS": metrics["tps"],
-        })
-
-    return results
+    return [{
+        "Model": model_name,
+        "Load_s": avg("Load_s"),
+        "Eval_s": avg("Eval_s"),
+        "TPS": avg("TPS"),
+        "RuntimeRAM_MB": avg("RuntimeRAM_MB"),
+        "NumParams_B": None,  # optional, can be filled later
+    }]

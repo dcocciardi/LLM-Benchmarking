@@ -1,4 +1,3 @@
-# ppl.py
 """
 Perplexity (PPL) evaluation utilities using llama-perplexity.
 
@@ -12,7 +11,7 @@ import subprocess
 import re
 import urllib.request
 
-from config import CORPORA_DIR
+from config import CORPORA_DIR, LLAMA_PPL
 
 
 # ---------------------------
@@ -64,7 +63,6 @@ def ensure_wikitext2_corpus() -> Path:
 
 def compute_ppl(
     model_path: Path,
-    llama_perplexity_bin: Path,
     *,
     context_size: int = 2048,
     batch_size: int = 256,
@@ -75,7 +73,6 @@ def compute_ppl(
 
     Args:
         model_path: Path to the GGUF model.
-        llama_perplexity_bin: Path to llama-perplexity binary.
         context_size: Context window size.
         batch_size: Batch size.
         ngl_layers: Number of GPU layers.
@@ -84,18 +81,16 @@ def compute_ppl(
         Perplexity value (float).
     """
 
+    if not LLAMA_PPL.exists():
+        raise RuntimeError(f"llama-perplexity not found at {LLAMA_PPL}")
+
     if not model_path.exists():
         raise FileNotFoundError(f"Model not found: {model_path}")
-
-    if not llama_perplexity_bin.exists():
-        raise FileNotFoundError(
-            f"llama-perplexity binary not found: {llama_perplexity_bin}"
-        )
 
     corpus_path = ensure_wikitext2_corpus()
 
     cmd = [
-        str(llama_perplexity_bin),
+        str(LLAMA_PPL),
         "-m", str(model_path),
         "-f", str(corpus_path),
         "-c", str(context_size),
@@ -111,13 +106,18 @@ def compute_ppl(
         text=True,
         encoding="utf-8",
         errors="ignore",
+        check=True,
     )
 
     output = result.stdout + result.stderr
 
-    # Expected output line:
+    # Expected output line (example):
     # "perplexity = 12.3456"
-    match = re.search(r"perplexity\s*=\s*([\d\.]+)", output)
+    match = re.search(
+        r"\bperplexity\s*=\s*([0-9]+(?:\.[0-9]+)?)\b",
+        output,
+    )
+
     if not match:
         raise RuntimeError(
             "Unable to parse perplexity from llama-perplexity output."

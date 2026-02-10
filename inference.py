@@ -1,4 +1,3 @@
-# inference.py
 """
 Low-level interface to llama.cpp (llama-cli).
 
@@ -23,8 +22,11 @@ def run_llama(
     ngl_layers: int = 0,
 ) -> str:
     """
-    Run llama-cli and return raw output.
+    Run llama-cli and return raw output (stdout + stderr).
     """
+
+    if not LLAMA_CLI.exists():
+        raise RuntimeError(f"llama-cli not found at {LLAMA_CLI}")
 
     if not model_path.exists():
         raise FileNotFoundError(f"Model not found: {model_path}")
@@ -46,6 +48,9 @@ def run_llama(
         text=True,
         encoding="utf-8",
         errors="ignore",
+        check=True,
     )
 
+    # Note: llama.cpp writes useful timing info to stderr,
+    # so we intentionally merge stdout and stderr.
     return result.stdout + result.stderr

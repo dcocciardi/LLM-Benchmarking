@@ -1,32 +1,30 @@
-# main.py
 """
 Main wrapper for the LLM Edge Benchmark pipeline.
 
-This script provides an interactive CLI menu to:
-- prepare models (download, convert, quantise)
+Provides an interactive CLI menu to:
+- prepare models (download, convert, quantise) [WIP]
 - run benchmarks via llama-cli
 - compute perplexity (PPL)
 - generate comparison plots
-- run the full pipeline end-to-end
-
-Actual implementations are delegated to dedicated modules.
 """
 
 import sys
+import csv
+from pathlib import Path
 from typing import List
 
-from config import SUPPORTED_QUANTS
+from config import (
+    SUPPORTED_QUANTS,
+    RESULTS_CSV,
+    PPL_CSV,
+    PROMPT_FILE,
+    DATA_DIR,
+    LLAMA_CLI,
+)
 
-import csv
 from benchmark_cli import run_llama_benchmark
-from config import RESULTS_CSV, PROMPT_FILE, LLAMA_CLI
-
 from plots import generate_basic_plots
-from config import RESULTS_CSV, DATA_DIR
-
 from ppl import compute_ppl
-from config import LLAMA_PPL, DATA_DIR
-
 
 
 # ---------------------------
@@ -61,46 +59,28 @@ def ask_list(prompt: str) -> List[str]:
 
 
 # ---------------------------
-# Menu actions (placeholders)
+# Menu actions
 # ---------------------------
 
 def prepare_model_menu():
     print("\n--- Prepare model ---")
-    model_id = input(
-        "Hugging Face model ID "
-        "(e.g. meta-llama/Llama-3.1-8B-Instruct): "
-    ).strip()
-
-    print("\nAvailable quantisations:")
-    for i, q in enumerate(SUPPORTED_QUANTS, start=1):
-        print(f"{i}) {q}")
-
-    selected = ask_list(
-        "Select quantisations (comma separated, e.g. 1,3): "
-    )
-
-    try:
-        quants = [SUPPORTED_QUANTS[int(i) - 1] for i in selected]
-    except (IndexError, ValueError):
-        print("Invalid quantisation selection.")
-        return
-
-    print("\n[INFO]")
-    print(f"Model ID       : {model_id}")
-    print(f"Quantisations  : {quants}")
-    print("Action         : prepare_model() [NOT IMPLEMENTED YET]\n")
-
-    # TODO: call hf_utils.prepare_model()
+    print("Model preparation is not implemented yet.\n")
+    print("This step will handle:")
+    print("- Hugging Face download")
+    print("- GGUF conversion")
+    print("- Quantisation\n")
 
 
 def run_benchmark_menu():
     print("\n--- Run benchmark ---")
 
     model_name = input("Model name (label for results): ").strip()
-    model_path = input("Path to GGUF model: ").strip()
+    model_path = Path(input("Path to GGUF model: ").strip())
 
     try:
-        ngl_layers = int(input("Number of GPU layers (-ngl, default 0): ").strip() or 0)
+        ngl_layers = int(
+            input("Number of GPU layers (-ngl, default 0): ").strip() or 0
+        )
     except ValueError:
         print("Invalid number for GPU layers.")
         return
@@ -110,7 +90,7 @@ def run_benchmark_menu():
     try:
         results = run_llama_benchmark(
             model_name=model_name,
-            model_path=model_path,
+            model_path=str(model_path),
             prompt_file=str(PROMPT_FILE),
             llama_cli_path=str(LLAMA_CLI),
             ngl_layers=ngl_layers,
@@ -119,7 +99,6 @@ def run_benchmark_menu():
         print(f"[ERROR] Benchmark failed: {e}")
         return
 
-    # ---- Save results to CSV ----
     file_exists = RESULTS_CSV.exists()
 
     with open(RESULTS_CSV, "a", newline="", encoding="utf-8") as csvfile:
@@ -134,7 +113,6 @@ def run_benchmark_menu():
         for row in results:
             writer.writerow(row)
 
-    # ---- Print summary ----
     avg_tps = sum(r["TPS"] for r in results) / len(results)
     avg_load = sum(r["Load_s"] for r in results) / len(results)
 
@@ -146,17 +124,15 @@ def run_benchmark_menu():
     print(f"Results saved  : {RESULTS_CSV}\n")
 
 
-
 def compute_ppl_menu():
     print("\n--- Compute perplexity (PPL) ---")
 
-    model_path = input("Path to GGUF model: ").strip()
-    model_path = Path(model_path)
-
-    corpus_path = DATA_DIR / "corpora" / "wikitext2" / "wiki.test.raw"
+    model_path = Path(input("Path to GGUF model: ").strip())
 
     try:
-        ngl_layers = int(input("Number of GPU layers (-ngl, default 0): ").strip() or 0)
+        ngl_layers = int(
+            input("Number of GPU layers (-ngl, default 0): ").strip() or 0
+        )
     except ValueError:
         print("Invalid number for GPU layers.")
         return
@@ -166,18 +142,32 @@ def compute_ppl_menu():
     try:
         ppl_value = compute_ppl(
             model_path=model_path,
-            corpus_path=corpus_path,
-            llama_perplexity_bin=LLAMA_PPL,
             ngl_layers=ngl_layers,
         )
     except Exception as e:
         print(f"[ERROR] PPL computation failed: {e}")
         return
 
+    file_exists = PPL_CSV.exists()
+
+    with open(PPL_CSV, "a", newline="", encoding="utf-8") as csvfile:
+        writer = csv.DictWriter(
+            csvfile,
+            fieldnames=["Model", "PPL"]
+        )
+
+        if not file_exists:
+            writer.writeheader()
+
+        writer.writerow({
+            "Model": model_path.name,
+            "PPL": ppl_value,
+        })
+
     print("\n--- Perplexity result ---")
     print(f"Model : {model_path.name}")
-    print(f"PPL   : {ppl_value:.4f}\n")
-
+    print(f"PPL   : {ppl_value:.4f}")
+    print(f"Saved : {PPL_CSV}\n")
 
 
 def generate_plots_menu():
@@ -187,12 +177,10 @@ def generate_plots_menu():
         print(f"[ERROR] Results file not found: {RESULTS_CSV}")
         return
 
-    output_dir = DATA_DIR / "plots"
-
     try:
         generate_basic_plots(
             csv_path=RESULTS_CSV,
-            output_dir=output_dir,
+            output_dir=DATA_DIR / "plots",
         )
     except Exception as e:
         print(f"[ERROR] Plot generation failed: {e}")
@@ -203,23 +191,7 @@ def generate_plots_menu():
 
 def full_pipeline_menu():
     print("\n--- Full pipeline ---")
-    print(
-        "This will execute:\n"
-        "  1) Model preparation\n"
-        "  2) Benchmark\n"
-        "  3) Perplexity computation\n"
-        "  4) Plot generation\n"
-    )
-
-    confirm = input("Proceed? [y/N]: ").strip().lower()
-    if confirm != "y":
-        print("Aborted.\n")
-        return
-
-    print("\n[INFO]")
-    print("Action         : full_pipeline() [NOT IMPLEMENTED YET]\n")
-
-    # TODO: orchestrate full pipeline
+    print("Not implemented yet.\n")
 
 
 # ---------------------------
