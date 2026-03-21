@@ -13,6 +13,9 @@ import csv
 from pathlib import Path
 from typing import List
 
+from config import MODELS_DIR
+from hf_utils import download_model_from_hf
+
 from config import (
     SUPPORTED_QUANTS,
     RESULTS_CSV,
@@ -26,6 +29,17 @@ from benchmark_cli import run_llama_benchmark
 from plots import generate_basic_plots
 from ppl import compute_ppl
 
+
+HF_MODELS = {
+    "1": ("Phi-3 Mini 3.8B", "microsoft/Phi-3-mini-4k-instruct"),
+    "2": ("Gemma 3 4B", "google/gemma-3-4b-it"),
+    "3": ("Gemma 2 2B", "google/gemma-2-2b-it"),
+    "4": ("Mistral 7B", "mistralai/Mistral-7B-v0.1"),
+    "5": ("Llama 3.1 8B", "meta-llama/Meta-Llama-3.1-8B"),
+    "6": ("ShearedLLaMA 2.7B", "princeton-nlp/Sheared-LLaMA-2.7B"),
+    "7": ("Phi-2 2.7B", "microsoft/phi-2"),
+    "8": ("Qwen 2 1.5B", "Qwen/Qwen2-1.5B"),
+}
 
 # ---------------------------
 # Menu utilities
@@ -58,17 +72,78 @@ def ask_list(prompt: str) -> List[str]:
     return [x.strip() for x in raw.split(",") if x.strip()]
 
 
+def list_local_models():
+
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+
+    models = list(MODELS_DIR.glob("*"))
+
+    if models:
+
+        print("\nAlready downloaded models:\n")
+
+        for m in models:
+            print(f" - {m.name}")
+
+        print()
+
+    else:
+
+        print("\nNo model was found in the models directory.")
+        print("Please download at least one model to start the benchmark.\n")
+
 # ---------------------------
 # Menu actions
 # ---------------------------
 
 def prepare_model_menu():
-    print("\n--- Prepare model ---")
-    print("Model preparation is not implemented yet.\n")
-    print("This step will handle:")
-    print("- Hugging Face download")
-    print("- GGUF conversion")
-    print("- Quantisation\n")
+
+    print("\n--- Download model from HuggingFace ---\n")
+
+    for k, (name, _) in HF_MODELS.items():
+        print(f"{k}) {name}")
+
+    print("9) Enter HuggingFace repository manually\n")
+
+    choice = input("Select model to download: ").strip()
+
+    if choice in HF_MODELS:
+
+        model_name, repo = HF_MODELS[choice]
+
+        print(f"\n[INFO] Downloading {model_name} from HuggingFace...\n")
+
+        try:
+
+            local_path = download_model_from_hf(repo)
+
+            print("\nDownload completed.")
+            print(f"Model saved to: {local_path}\n")
+
+        except Exception as e:
+
+            print("\n[ERROR] Download failed:")
+            print(e)
+
+    elif choice == "9":
+
+        repo = input("Enter HuggingFace repository (e.g. org/model): ").strip()
+
+        try:
+
+            local_path = download_model_from_hf(repo)
+
+            print("\nDownload completed.")
+            print(f"Model saved to: {local_path}\n")
+
+        except Exception as e:
+
+            print("\n[ERROR] Download failed:")
+            print(e)
+
+    else:
+
+        print("\nInvalid selection.\n")
 
 
 def run_benchmark_menu():
@@ -99,12 +174,26 @@ def run_benchmark_menu():
         print(f"[ERROR] Benchmark failed: {e}")
         return
 
+    RESULTS_CSV.parent.mkdir(parents=True, exist_ok=True)
+
     file_exists = RESULTS_CSV.exists()
 
     with open(RESULTS_CSV, "a", newline="", encoding="utf-8") as csvfile:
         writer = csv.DictWriter(
             csvfile,
-            fieldnames=["Model", "PromptID", "Load_s", "Eval_s", "TPS"]
+            fieldnames=[
+                "Model",
+                "Quant",
+                "PromptID",
+                "PromptText",
+                "Load_s",
+                "Eval_s",
+                "TPS",
+                "ModelRAM_MB",
+                "KVCache_MB",
+                "RuntimeRAM_MB",
+                "NumParams_B",
+            ]
         )
 
         if not file_exists:
@@ -179,7 +268,8 @@ def generate_plots_menu():
 
     try:
         generate_basic_plots(
-            csv_path=RESULTS_CSV,
+            results_csv=RESULTS_CSV,
+            ppl_csv=PPL_CSV,
             output_dir=DATA_DIR / "plots",
         )
     except Exception as e:
@@ -199,8 +289,12 @@ def full_pipeline_menu():
 # ---------------------------
 
 def main():
+
+    list_local_models()
+
     while True:
         print_header()
+        list_local_models()
         print_menu()
         choice = ask_choice()
 

@@ -92,7 +92,7 @@ def run_llama_benchmark(
 
     all_metrics = []
 
-    for prompt in prompts:
+    for i, prompt in enumerate(prompts, start=1):
         cmd = [
             llama_cli_path,
             "-m", model_path,
@@ -104,30 +104,32 @@ def run_llama_benchmark(
             "--no-warmup",
         ]
 
-        if ngl_layers > 0:
-            cmd.extend(["-ngl", str(ngl_layers)])
+    if ngl_layers > 0:
+        cmd.extend(["-ngl", str(ngl_layers)])
 
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="ignore",
-            check=True,
-        )
+    proc = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="ignore",
+        check=True,
+    )
 
-        output = proc.stdout + proc.stderr
-        metrics = parse_llama_output(output)
-        all_metrics.append(metrics)
+    output = proc.stdout + proc.stderr
+    metrics = parse_llama_output(output)
 
-    # Aggregate across prompts
-    avg = lambda k: sum(m[k] for m in all_metrics) / len(all_metrics)
+    metrics["Model"] = model_name
+    metrics["PromptID"] = i
+    metrics["PromptText"] = prompt
+    metrics["Quant"] = model_name.split("_")[-1]
 
-    return [{
-        "Model": model_name,
-        "Load_s": avg("Load_s"),
-        "Eval_s": avg("Eval_s"),
-        "TPS": avg("TPS"),
-        "RuntimeRAM_MB": avg("RuntimeRAM_MB"),
-        "NumParams_B": None,  # optional, can be filled later
-    }]
+    match = re.search(r"(\d+(\.\d+)?)b", model_name.lower())
+    if match:
+        metrics["NumParams_B"] = float(match.group(1))
+    else:
+        metrics["NumParams_B"] = 0
+
+    all_metrics.append(metrics)
+
+    return all_metrics

@@ -118,4 +118,28 @@ def generate_basic_plots(
     plt.savefig(output_dir / "ram_vs_params.png", dpi=300)
     plt.close()
 
+    # ---------------------------
+    # Plot 4: TPS vs Runtime RAM
+    # ---------------------------
+
+    plt.figure(figsize=(8, 6))
+    plt.scatter(data["RuntimeRAM_MB"], data["TPS"])
+
+    for _, row in data.iterrows():
+        plt.annotate(
+            row["Model"],
+            (row["RuntimeRAM_MB"], row["TPS"]),
+            fontsize=9,
+            alpha=0.8,
+        )
+
+    plt.xlabel("Runtime RAM / VRAM (MB)")
+    plt.ylabel("Tokens per second")
+    plt.title("Throughput vs Memory Usage")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(output_dir / "tps_vs_ram.png", dpi=300)
+    plt.close()
+
+
     print(f"[INFO] Plots saved to: {output_dir}")
