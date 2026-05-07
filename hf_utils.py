@@ -15,7 +15,8 @@ from pathlib import Path
 import subprocess
 import sys
 
-from huggingface_hub import snapshot_download, HfHubHTTPError
+from huggingface_hub import snapshot_download
+from huggingface_hub.utils import HfHubHTTPError
 
 from config import (
     MODELS_DIR,
@@ -71,16 +72,19 @@ def convert_to_gguf(
     model_dir: Path,
     output_path: Path,
     *,
-    outtype: str = "f16",
+    outtype: str = "f32",
 ) -> Path:
     """
     Convert a Hugging Face model to GGUF using llama.cpp utilities.
+    Default output is F32, used as the baseline model.
     """
 
     if not CONVERT_SCRIPT.exists():
         raise FileNotFoundError(
             f"convert_hf_to_gguf.py not found at {CONVERT_SCRIPT}"
         )
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     cmd = [
         sys.executable,
