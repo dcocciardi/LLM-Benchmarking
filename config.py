@@ -36,7 +36,7 @@ PROMPT_FILE = PROJECT_ROOT / "prompt.txt"
 # =========================
 
 # Directory root di llama.cpp (buildata manualmente)
-LLAMA_CPP_ROOT = Path.home() / "llama.cpp"
+LLAMA_CPP_ROOT = Path("/home/dcocciardi/llama.cpp2/llama.cpp")
 
 if not LLAMA_CPP_ROOT.exists():
     raise RuntimeError(
