@@ -11,4 +11,4 @@ models/
 
 # OS / editor
 .vscode/
-.DS_Store
+.DS_Storedata/system/.nfs*
