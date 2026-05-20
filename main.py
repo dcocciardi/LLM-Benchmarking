@@ -16,6 +16,14 @@ import csv
 from pathlib import Path
 from typing import List
 
+from llmfit_utils import ensure_llmfit_available
+
+from llmfit_utils import (
+    generate_llmfit_recommendations,
+    print_llmfit_cache_summary,
+    is_model_recommended,
+)
+
 import shutil
 
 from config import (
@@ -45,6 +53,8 @@ from plots import generate_basic_plots
 # Menu utilities
 # =========================================================
 
+ensure_llmfit_available(auto_install=True)
+
 def print_header():
 
     print("\n" + "=" * 60)
@@ -59,6 +69,7 @@ def print_menu():
     print("3) Compute perplexity (PPL)")
     print("4) Generate plots")
     print("5) Run full automated pipeline")
+    print("6) Show LLMFit recommendations for this architecture")
     print("0) Exit\n")
 
 
@@ -203,6 +214,10 @@ def prepare_model_menu():
     try:
         selected_model = choose_model_menu()
 
+    except KeyboardInterrupt:
+        print("\nOperation cancelled.\n")
+        return
+
     except Exception as e:
         print(f"\n[ERROR] {e}\n")
         return
@@ -217,8 +232,31 @@ def prepare_model_menu():
         print("If you do not have access yet, run:")
         print("  huggingface-cli login\n")
 
-    confirm = input("Continue download and F32 GGUF conversion? [y/N]: ").strip().lower()
+    is_recommended = is_model_recommended(selected_model)
 
+    if not is_recommended:
+        print("\n[INFO]")
+        print(
+            "The selected model does not appear in the LLMFit top recommended "
+            "model list for the detected hardware architecture."
+        )
+        print(
+            "This does not necessarily mean that the model cannot run; "
+            "LLMFit recommendations are used only as an advisory pre-check."
+        )
+    else:
+        print("\n[INFO]")
+        print(
+            "The selected model appears in the LLMFit recommended list "
+            "for the detected hardware architecture."
+        )
+    
+    print()    
+        
+    confirm = input(
+        "Continue download and F32 GGUF conversion? [y/N]: "
+    ).strip().lower()
+    
     if confirm != "y":
         print("\nOperation cancelled.\n")
         return
@@ -470,38 +508,34 @@ def full_pipeline_menu():
 
 def main():
 
+    generate_llmfit_recommendations()
+
     while True:
 
         print_header()
-
         list_local_models()
-
         print_menu()
-
         choice = ask_choice()
 
         if choice == 1:
-
             prepare_model_menu()
 
         elif choice == 2:
-
             run_benchmark_menu()
 
         elif choice == 3:
-
             compute_ppl_menu()
 
         elif choice == 4:
-
             generate_plots_menu()
 
         elif choice == 5:
-
             full_pipeline_menu()
+            
+        elif choice == 6:
+            print_llmfit_cache_summary(limit=30)
 
         elif choice == 0:
-
             print("\nExiting.")
             sys.exit(0)
 
