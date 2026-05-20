@@ -1,14 +1,36 @@
 # Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+*.so
 
-# Data & results
-data/*.csv
-data/*.png
+# Virtual environments
+venv/
+.venv/
+llm-venv/
+humaneval/
 
 # Models
 models/
 
-# OS / editor
+# Benchmark outputs
+data/results/*.csv
+data/plots/*
+!data/plots/.gitkeep
+
+# Corpora
+data/corpora/*
+
+# LLMFit cache
+data/system/llmfit_recommendations.json
+data/system/llmfit_recommendations.txt
+data/system/.nfs*
+
+# IDE
 .vscode/
-.DS_Storedata/system/.nfs*
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
