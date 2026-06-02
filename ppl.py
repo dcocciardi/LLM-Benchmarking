@@ -1,7 +1,7 @@
 """
 Perplexity (PPL) evaluation utilities using llama-perplexity.
 
-- Uses WikiText-2 raw test set (standard LM benchmark)
+- Uses WikiText-2 raw test set
 - Automatically downloads the corpus if not present
 - Relies on centralised paths defined in config.py
 """
@@ -9,7 +9,8 @@ Perplexity (PPL) evaluation utilities using llama-perplexity.
 from pathlib import Path
 import subprocess
 import re
-import urllib.request
+
+from datasets import load_dataset
 
 from config import CORPORA_DIR, LLAMA_PPL
 
@@ -17,11 +18,6 @@ from config import CORPORA_DIR, LLAMA_PPL
 # ---------------------------
 # WikiText-2 configuration
 # ---------------------------
-
-WIKITEXT2_URL = (
-    "https://huggingface.co/datasets/wikitext/resolve/main/"
-    "wikitext-2-raw-v1/wiki.test.raw"
-)
 
 WIKITEXT2_PATH = CORPORA_DIR / "wikitext2" / "wiki.test.raw"
 
@@ -32,11 +28,8 @@ WIKITEXT2_PATH = CORPORA_DIR / "wikitext2" / "wiki.test.raw"
 
 def ensure_wikitext2_corpus() -> Path:
     """
-    Ensure that the WikiText-2 raw test corpus exists locally.
-    If not, download it from Hugging Face.
-
-    Returns:
-        Path to the corpus file.
+    Download WikiText-2 raw test split from Hugging Face datasets
+    and save it locally if not already present.
     """
 
     if WIKITEXT2_PATH.exists():
@@ -47,7 +40,17 @@ def ensure_wikitext2_corpus() -> Path:
     WIKITEXT2_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        urllib.request.urlretrieve(WIKITEXT2_URL, WIKITEXT2_PATH)
+        dataset = load_dataset(
+            "Salesforce/wikitext",
+            "wikitext-2-raw-v1",
+            split="test",
+        )
+
+        text = "\n".join(dataset["text"])
+
+        with open(WIKITEXT2_PATH, "w", encoding="utf-8") as f:
+            f.write(text)
+
     except Exception as e:
         raise RuntimeError(
             f"Failed to download WikiText-2 corpus: {e}"
@@ -70,15 +73,6 @@ def compute_ppl(
 ) -> float:
     """
     Compute perplexity for a GGUF model using llama-perplexity.
-
-    Args:
-        model_path: Path to the GGUF model.
-        context_size: Context window size.
-        batch_size: Batch size.
-        ngl_layers: Number of GPU layers.
-
-    Returns:
-        Perplexity value (float).
     """
 
     if not LLAMA_PPL.exists():
@@ -111,16 +105,20 @@ def compute_ppl(
 
     output = result.stdout + result.stderr
 
-    # Expected output line (example):
-    # "perplexity = 12.3456"
-    match = re.search(
-        r"\bperplexity\s*=\s*([0-9]+(?:\.[0-9]+)?)\b",
-        output,
+    patterns = [
+        r"perplexity\s*=\s*([0-9]+(?:\.[0-9]+)?)",
+        r"ppl\s*=\s*([0-9]+(?:\.[0-9]+)?)",
+        r"Final estimate:\s*PPL\s*=\s*([0-9]+(?:\.[0-9]+)?)",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, output, re.IGNORECASE)
+        if match:
+            return float(match.group(1))
+
+    print("\n[DEBUG] llama-perplexity output:")
+    print(output[-2000:])
+
+    raise RuntimeError(
+        "Unable to parse perplexity from llama-perplexity output."
     )
-
-    if not match:
-        raise RuntimeError(
-            "Unable to parse perplexity from llama-perplexity output."
-        )
-
-    return float(match.group(1))

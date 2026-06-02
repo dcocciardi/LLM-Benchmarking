@@ -8,6 +8,7 @@ from llama.cpp logs.
 import subprocess
 import re
 from typing import Dict, List
+from tqdm import tqdm
 
 
 # ---------------------------
@@ -71,6 +72,7 @@ def parse_llama_output(output: str) -> Dict[str, float]:
 
 def run_llama_benchmark(
     model_name: str,
+    quant: str,
     model_path: str,
     prompt_file: str,
     llama_cli_path: str,
@@ -79,7 +81,7 @@ def run_llama_benchmark(
     max_tokens: int = 128,
     ngl_layers: int = 0,
     temperature: float = 0.7,
-) -> List[Dict]:
+) -> Dict:
     """
     Run benchmark on all prompts and return aggregated metrics.
     """
@@ -92,7 +94,7 @@ def run_llama_benchmark(
 
     all_metrics = []
 
-    for i, prompt in enumerate(prompts, start=1):
+    for prompt in tqdm(prompts, desc="Running benchmark", unit="prompt"):
         cmd = [
             llama_cli_path,
             "-m", model_path,
@@ -104,32 +106,31 @@ def run_llama_benchmark(
             "--no-warmup",
         ]
 
-    if ngl_layers > 0:
-        cmd.extend(["-ngl", str(ngl_layers)])
+        if ngl_layers > 0:
+            cmd.extend(["-ngl", str(ngl_layers)])
 
-    proc = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="ignore",
-        check=True,
-    )
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="ignore",
+            check=True,
+        )
 
-    output = proc.stdout + proc.stderr
-    metrics = parse_llama_output(output)
+        output = proc.stdout + proc.stderr
+        metrics = parse_llama_output(output)
+        all_metrics.append(metrics)
 
-    metrics["Model"] = model_name
-    metrics["PromptID"] = i
-    metrics["PromptText"] = prompt
-    metrics["Quant"] = model_name.split("_")[-1]
+    avg_load = sum(m["load_s"] for m in all_metrics) / len(all_metrics)
+    avg_eval = sum(m["eval_s"] for m in all_metrics) / len(all_metrics)
+    avg_tps = sum(m["tps"] for m in all_metrics) / len(all_metrics)
 
-    match = re.search(r"(\d+(\.\d+)?)b", model_name.lower())
-    if match:
-        metrics["NumParams_B"] = float(match.group(1))
-    else:
-        metrics["NumParams_B"] = 0
-
-    all_metrics.append(metrics)
-
-    return all_metrics
+    return {
+        "Model": model_name,
+        "Quant": quant,
+        "NumPrompts": len(prompts),
+        "Avg_Load_s": avg_load,
+        "Avg_Eval_s": avg_eval,
+        "Avg_TPS": avg_tps,
+    }

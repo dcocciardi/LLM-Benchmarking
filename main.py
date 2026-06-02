@@ -15,6 +15,7 @@ import sys
 import csv
 from pathlib import Path
 from typing import List
+import matplotlib.pyplot as plt
 
 from llmfit_utils import ensure_llmfit_available
 
@@ -42,6 +43,7 @@ from model_registry import MODEL_REGISTRY
 from hf_utils import (
     download_model_from_hf,
     convert_to_gguf,
+    quantise_gguf,
 )
 
 from benchmark_cli import run_llama_benchmark
@@ -250,13 +252,13 @@ def prepare_model_menu():
             "The selected model appears in the LLMFit recommended list "
             "for the detected hardware architecture."
         )
-    
-    print()    
-        
+
+    print()
+
     confirm = input(
-        "Continue download and F32 GGUF conversion? [y/N]: "
+        "Continue download and GGUF preparation? [y/N]: "
     ).strip().lower()
-    
+
     if confirm != "y":
         print("\nOperation cancelled.\n")
         return
@@ -285,58 +287,159 @@ def prepare_model_menu():
             output_path=gguf_output_path,
             outtype="f32",
         )
-        
+
+        print("\n[INFO] F32 GGUF baseline created.")
+        print(f"F32 path: {gguf_path}")
+
+        quantisation_plan = {
+            "F16": "F16",
+            "Q8_0": "Q8_0",
+            "Q4_K_M": "Q4_K_M",
+            "Q2_K": "Q2_K",
+        }
+
+        for quant_label, llama_quant in quantisation_plan.items():
+
+            quant_output_path = (
+                MODELS_DIR
+                / selected_model["model_key"]
+                / f"{selected_model['model_key']}-{quant_label}.gguf"
+            )
+
+            print(f"\n[INFO] Generating {quant_label} quantisation...")
+            print(f"Output path: {quant_output_path}")
+
+            quantise_gguf(
+                gguf_path=gguf_path,
+                quant_type=llama_quant,
+                output_path=quant_output_path,
+            )
+
+            print(f"[OK] {quant_label} generated successfully.")
+
         print("\n[INFO] Removing original Hugging Face model files...")
         shutil.rmtree(local_path)
         print("[INFO] Hugging Face files removed successfully.")
 
     except Exception as e:
-        print("\n[ERROR] Model preparation failed.")
-        print(e)
+        print(f"\n[ERROR] Model preparation failed: {e}\n")
         return
-
-    print("\nModel preparation completed successfully.")
-    print(f"F32 GGUF saved to: {gguf_path}\n")
-
+        
 
 # =========================================================
 # Benchmark menu
 # =========================================================
 
+
+def discover_local_gguf_models():
+    """
+    Scan MODELS_DIR and return local GGUF models grouped by model name.
+    """
+
+    discovered = {}
+
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+
+    for gguf_file in MODELS_DIR.rglob("*.gguf"):
+        stem = gguf_file.stem
+
+        if "-" not in stem:
+            continue
+
+        model_name, quant = stem.rsplit("-", 1)
+
+        discovered.setdefault(model_name, []).append({
+            "quant": quant,
+            "path": gguf_file,
+        })
+
+    return discovered
+    
+def quantisation_sort_key(quant: str) -> int:
+    order = {
+        "F32": 0,
+        "F16": 1,
+        "Q8_0": 2,
+        "Q4_K_M": 3,
+        "Q2_K": 4,
+    }
+
+    return order.get(quant, 999)
+
 def run_benchmark_menu():
 
     print("\n--- Run benchmark ---")
 
-    model_name = input(
-        "Model label: "
-    ).strip()
+    discovered = discover_local_gguf_models()
 
-    quant = input(
-        "Quantisation label "
-        "(e.g. F16, Q8_0, Q4_K_M): "
-    ).strip()
+    if not discovered:
+        print("\n[ERROR] No local GGUF models found.\n")
+        return
 
-    model_path = Path(
-        input("Path to GGUF model: ").strip()
-    )
+    model_names = list(discovered.keys())
+
+    print("\nAvailable local models:\n")
+
+    for i, name in enumerate(model_names, start=1):
+        print(f"{i}) {name}")
+
+    print("0) Cancel\n")
 
     try:
+        choice = int(input("Select model: ").strip())
+    except ValueError:
+        print("Invalid selection.")
+        return
 
+    if choice == 0:
+        return
+
+    if choice < 1 or choice > len(model_names):
+        print("Selection out of range.")
+        return
+
+    selected_model = model_names[choice - 1]
+    variants = discovered[selected_model]
+
+    print("\nAvailable quantisations:\n")
+
+    for i, variant in enumerate(variants, start=1):
+        print(f"{i}) {variant['quant']}")
+
+    print("0) Cancel\n")
+
+    try:
+        qchoice = int(input("Select quantisation: ").strip())
+    except ValueError:
+        print("Invalid selection.")
+        return
+
+    if qchoice == 0:
+        return
+
+    if qchoice < 1 or qchoice > len(variants):
+        print("Selection out of range.")
+        return
+
+    selected_variant = variants[qchoice - 1]
+
+    model_name = selected_model
+    quant = selected_variant["quant"]
+    model_path = selected_variant["path"]
+
+    try:
         ngl_layers = int(
             input(
                 "Number of GPU layers (-ngl, default 0): "
             ).strip() or 0
         )
-
     except ValueError:
-
         print("Invalid GPU layer count.")
         return
 
     print("\n[INFO] Running benchmark...\n")
 
     try:
-
         result = run_llama_benchmark(
             model_name=model_name,
             quant=quant,
@@ -345,26 +448,14 @@ def run_benchmark_menu():
             llama_cli_path=str(LLAMA_CLI),
             ngl_layers=ngl_layers,
         )
-
     except Exception as e:
-
         print(f"[ERROR] Benchmark failed: {e}")
         return
 
-    RESULTS_CSV.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
+    RESULTS_CSV.parent.mkdir(parents=True, exist_ok=True)
     file_exists = RESULTS_CSV.exists()
 
-    with open(
-        RESULTS_CSV,
-        "a",
-        newline="",
-        encoding="utf-8",
-    ) as csvfile:
-
+    with open(RESULTS_CSV, "a", newline="", encoding="utf-8") as csvfile:
         writer = csv.DictWriter(
             csvfile,
             fieldnames=[
@@ -385,10 +476,6 @@ def run_benchmark_menu():
     print("\n--- Benchmark completed ---")
     print(f"Model          : {model_name}")
     print(f"Quantisation   : {quant}")
-    print(f"Prompts tested : {result['NumPrompts']}")
-    print(f"Avg load time  : {result['Avg_Load_s']:.2f} s")
-    print(f"Avg eval time  : {result['Avg_Eval_s']:.2f} s")
-    print(f"Avg TPS        : {result['Avg_TPS']:.2f} tok/s")
     print(f"Results saved  : {RESULTS_CSV}\n")
 
 
@@ -396,71 +483,149 @@ def run_benchmark_menu():
 # PPL menu
 # =========================================================
 
+
+def generate_ppl_plot_for_model(row: dict):
+
+    model_name = row["Model"]
+
+    quantisations = ["F32", "F16", "Q8_0", "Q4_K_M", "Q2_K"]
+
+    x = []
+    y = []
+
+    for quant in quantisations:
+        value = row.get(quant)
+
+        if value != "" and value is not None:
+            x.append(quant)
+            y.append(float(value))
+
+    if not x:
+        print("[WARNING] No valid PPL values available for plotting.")
+        return
+
+    output_dir = DATA_DIR / "plots" / "ppl"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    plt.figure(figsize=(8, 5))
+    plt.plot(x, y, marker="o")
+    plt.xlabel("Quantisation")
+    plt.ylabel("Perplexity")
+    plt.title(f"PPL degradation across quantisations - {model_name}")
+    plt.grid(True)
+    plt.tight_layout()
+
+    output_path = output_dir / f"{model_name}_ppl_by_quant.png"
+    plt.savefig(output_path, dpi=300)
+    plt.close()
+
+    print(f"[OK] PPL plot saved to: {output_path}")
+    
+
+
 def compute_ppl_menu():
 
     print("\n--- Compute perplexity (PPL) ---")
 
-    model_path = Path(
-        input("Path to GGUF model: ").strip()
+    discovered = discover_local_gguf_models()
+
+    if not discovered:
+        print("\n[ERROR] No local GGUF models found.\n")
+        return
+
+    model_names = list(discovered.keys())
+
+    print("\nAvailable local models:\n")
+
+    for i, name in enumerate(model_names, start=1):
+        print(f"{i}) {name}")
+
+    print("0) Cancel\n")
+
+    try:
+        choice = int(input("Select model: ").strip())
+    except ValueError:
+        print("Invalid selection.")
+        return
+
+    if choice == 0:
+        return
+
+    if choice < 1 or choice > len(model_names):
+        print("Selection out of range.")
+        return
+
+    selected_model = model_names[choice - 1]
+
+    variants = sorted(
+        discovered[selected_model],
+        key=lambda x: quantisation_sort_key(x["quant"])
     )
 
     try:
-
         ngl_layers = int(
             input(
                 "Number of GPU layers (-ngl, default 0): "
             ).strip() or 0
         )
-
     except ValueError:
-
         print("Invalid GPU layer count.")
         return
 
-    print("\n[INFO] Computing perplexity...\n")
+    print("\n[INFO] Computing PPL for all available quantisations...\n")
 
-    try:
+    row = {
+        "Model": selected_model,
+        "F32": "",
+        "F16": "",
+        "Q8_0": "",
+        "Q4_K_M": "",
+        "Q2_K": "",
+    }
 
-        ppl_value = compute_ppl(
-            model_path=model_path,
-            llama_perplexity_bin=LLAMA_PPL,
-            ngl_layers=ngl_layers,
-        )
+    for variant in variants:
 
-    except Exception as e:
+        quant = variant["quant"]
+        model_path = variant["path"]
 
-        print(f"[ERROR] PPL computation failed: {e}")
-        return
+        if quant not in row:
+            continue
 
+        print(f"[INFO] Computing PPL for {selected_model} [{quant}]")
+        print(f"Model path: {model_path}")
+
+        try:
+            ppl_value = compute_ppl(
+                model_path=model_path,
+                #llama_perplexity_bin=LLAMA_PPL,
+                ngl_layers=ngl_layers,
+            )
+
+            row[quant] = round(ppl_value, 4)
+            print(f"[OK] {quant} PPL = {ppl_value:.4f}\n")
+
+        except Exception as e:
+            print(f"[ERROR] PPL failed for {quant}: {e}\n")
+            row[quant] = ""
+
+    PPL_CSV.parent.mkdir(parents=True, exist_ok=True)
+
+    fieldnames = ["Model", "F32", "F16", "Q8_0", "Q4_K_M", "Q2_K"]
     file_exists = PPL_CSV.exists()
 
-    with open(
-        PPL_CSV,
-        "a",
-        newline="",
-        encoding="utf-8",
-    ) as csvfile:
-
-        writer = csv.DictWriter(
-            csvfile,
-            fieldnames=[
-                "Model",
-                "PPL",
-            ]
-        )
+    with open(PPL_CSV, "a", newline="", encoding="utf-8") as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
         if not file_exists:
             writer.writeheader()
 
-        writer.writerow({
-            "Model": model_path.name,
-            "PPL": ppl_value,
-        })
+        writer.writerow(row)
 
     print("\n--- Perplexity completed ---")
-    print(f"Model : {model_path.name}")
-    print(f"PPL   : {ppl_value:.4f}")
+    print(f"Model : {selected_model}")
     print(f"Saved : {PPL_CSV}\n")
+
+    generate_ppl_plot_for_model(row)
 
 
 # =========================================================

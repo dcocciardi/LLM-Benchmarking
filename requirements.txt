@@ -6,3 +6,4 @@ scipy
 sentencepiece
 gguf
 protobuf
+datasets
